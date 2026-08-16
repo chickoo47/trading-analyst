@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any, Optional
 
 from langchain_core.messages import AIMessage
@@ -7,6 +8,13 @@ from langchain_openai import ChatOpenAI
 from .api_key_env import get_api_key_env
 from .base_client import BaseLLMClient, normalize_content
 from .capabilities import get_capabilities
+from .rate_limiter import (
+    DEFAULT_TPM_LIMIT,
+    estimate_tokens,
+    get_limiter,
+    is_tpm_rate_limit_error,
+    parse_retry_after_seconds,
+)
 from .validators import validate_model
 
 
@@ -136,6 +144,39 @@ class MinimaxChatOpenAI(NormalizedChatOpenAI):
         return payload
 
 
+class GroqChatOpenAI(NormalizedChatOpenAI):
+    """ChatOpenAI variant that paces requests to Groq's free-tier 8000 TPM cap.
+
+    Every current Groq model (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b) shares
+    the same 8000 tokens/minute limit, and Groq returns a 413 (not 429) for
+    a request that alone exceeds it, which the openai SDK's built-in retry
+    logic doesn't retry. This estimates each request's size, waits if the
+    rolling 60s window is near budget, and retries a rate-limit response
+    using Groq's own suggested wait time before giving up.
+    """
+
+    _tpm_limit: int = DEFAULT_TPM_LIMIT
+    _max_retries_on_limit: int = 3
+
+    def invoke(self, input, config=None, **kwargs):
+        limiter = get_limiter(self.model_name, self._tpm_limit)
+        estimated = estimate_tokens(input, kwargs.get("tools"))
+
+        for attempt in range(self._max_retries_on_limit + 1):
+            limiter.reserve(estimated)
+            try:
+                result = super().invoke(input, config, **kwargs)
+            except Exception as e:
+                if is_tpm_rate_limit_error(e) and attempt < self._max_retries_on_limit:
+                    time.sleep(parse_retry_after_seconds(e))
+                    continue
+                raise
+
+            usage = getattr(result, "usage_metadata", None) or {}
+            limiter.record_actual(estimated, usage.get("total_tokens") or estimated)
+            return result
+
+
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort",
@@ -238,6 +279,11 @@ class OpenAIClient(BaseLLMClient):
             chat_cls = DeepSeekChatOpenAI
         elif self.provider in ("minimax", "minimax-cn"):
             chat_cls = MinimaxChatOpenAI
+        elif self.provider == "openrouter":
+            # "openrouter" is this app's internal key for the "Groq (Fast &
+            # Free)" CLI option (see cli/utils.py) — apply Groq's free-tier
+            # TPM pacing rather than treating it as generic OpenRouter.
+            chat_cls = GroqChatOpenAI
         else:
             chat_cls = NormalizedChatOpenAI
         return chat_cls(**llm_kwargs)

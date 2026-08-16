@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional
 
 import questionary
 from dotenv import find_dotenv, set_key
@@ -165,29 +165,13 @@ def select_research_depth() -> int:
     return choice
 
 
-def _fetch_openrouter_models() -> List[Tuple[str, str]]:
-    """Fetch available models from the OpenRouter API."""
-    import requests
-    try:
-        resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
-        resp.raise_for_status()
-        models = resp.json().get("data", [])
-        return [(m.get("name") or m["id"], m["id"]) for m in models]
-    except Exception as e:
-        console.print(f"\n[yellow]Could not fetch OpenRouter models: {e}[/yellow]")
-        return []
-
-
 def select_openrouter_model() -> str:
-    """Select an OpenRouter model from the newest available, or enter a custom ID."""
-    models = _fetch_openrouter_models()
-
+    """Select a Groq-hosted model from the supported list."""
     choices = [
-        questionary.Choice("Deep Thinking: llama-3.3-70b-versatile", value="llama-3.3-70b-versatile"),
-        questionary.Choice("Quick Thinking: llama-3.1-8b-instant", value="llama-3.1-8b-instant"),
+        questionary.Choice("Deep Thinking: gpt-oss-120b", value="openai/gpt-oss-120b"),
+        questionary.Choice("Deep Thinking: qwen3.6-27b", value="qwen/qwen3.6-27b"),
+        questionary.Choice("Quick Thinking: gpt-oss-20b", value="openai/gpt-oss-20b"),
     ]
-    choices.extend([questionary.Choice(name, value=mid) for name, mid in models[:5]])
-    choices.append(questionary.Choice("Custom model ID", value="custom"))
 
     choice = questionary.select(
         "Select OpenRouter Model (latest available):",
@@ -200,11 +184,9 @@ def select_openrouter_model() -> str:
         ]),
     ).ask()
 
-    if choice is None or choice == "custom":
-        return questionary.text(
-            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-        ).ask().strip()
+    if choice is None:
+        console.print("\n[red]No model selected. Exiting...[/red]")
+        exit(1)
 
     return choice
 
