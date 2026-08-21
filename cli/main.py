@@ -20,7 +20,7 @@ from rich import box
 from rich.align import Align
 from rich.rule import Rule
 
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph.trading_graph import TradingAnalystGraph
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
@@ -1000,7 +1000,7 @@ def run_analysis(checkpoint: bool = False):
     analyst_wall_time_tracker = AnalystWallTimeTracker(analyst_execution_plan)
 
     # Initialize the graph with callbacks bound to LLMs
-    graph = TradingAgentsGraph(
+    graph = TradingAnalystGraph(
         selected_analyst_keys,
         config=config,
         debug=True,
