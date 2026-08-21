@@ -1,4 +1,4 @@
-"""Append-only markdown decision log for TradingAgents."""
+"""Append-only markdown decision log for Trading Analyst."""
 
 from typing import List, Optional
 from pathlib import Path
